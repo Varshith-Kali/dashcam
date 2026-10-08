@@ -102,17 +102,32 @@ def today(db: str = typer.Option(None, help="Path to the receipts database.")) -
 @app.command(name="runs")
 def list_runs(db: str = typer.Option(None, help="Path to the receipts database."),
               limit: int = typer.Option(20, help="How many sessions to show.")) -> None:
-    """List recorded sessions."""
+    """List recorded sessions, with tool calls, tokens and cost each."""
+    from rich.table import Table
     store = _store(db)
     rows = store.cx.execute(
-        "SELECT id, harness, project, started_at, source FROM sessions "
-        "ORDER BY started_at DESC LIMIT ?", (limit,)).fetchall()
+        """SELECT s.id, s.harness, s.project, s.started_at,
+                  (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id) AS tool_calls,
+                  COALESCE((SELECT SUM(input_tokens) FROM spend p
+                            WHERE p.session_id = s.id), 0) AS in_tok,
+                  COALESCE((SELECT SUM(output_tokens) FROM spend p
+                            WHERE p.session_id = s.id), 0) AS out_tok,
+                  COALESCE((SELECT SUM(cost_usd) FROM spend p
+                            WHERE p.session_id = s.id), 0.0) AS cost
+           FROM sessions s ORDER BY s.started_at DESC LIMIT ?""", (limit,)).fetchall()
+    store.close()
     if not rows:
         console.print("No sessions recorded. Try [cyan]dashcam demo[/cyan] or [cyan]dashcam ingest[/cyan].")
+        return
+    t = Table(show_header=True, header_style="bold")
+    t.add_column("Started"); t.add_column("Harness"); t.add_column("Project")
+    t.add_column("Tools", justify="right"); t.add_column("Tokens in/out", justify="right")
+    t.add_column("Cost", justify="right")
     for r in rows:
-        console.print(f"{r['started_at'] or '?':25} {r['harness']:12} {r['project']:30} "
-                      f"[dim]{r['id'][:12]}[/dim]")
-    store.close()
+        t.add_row((r["started_at"] or "?")[:16], r["harness"], (r["project"] or "")[:24],
+                  str(r["tool_calls"]), f"{r['in_tok']:,}/{r['out_tok']:,}",
+                  f"${r['cost']:.2f}")
+    console.print(t)
 
 
 @app.command()
@@ -152,8 +167,15 @@ def export(
     db: str = typer.Option(None, help="Path to the receipts database."),
     day: str = typer.Option(None, help="Export one day (YYYY-MM-DD). Default: everything."),
     session: str = typer.Option(None, help="Export a single session id."),
+    format: str = typer.Option("json", help="Output format: json or hec (Splunk HEC)."),
 ) -> None:
-    """Dump receipts as JSON (sessions, events, spend) to stdout."""
+    """Dump receipts to stdout — JSON, or Splunk HEC for SIEM forwarding."""
+    import socket
+    from datetime import datetime
+
+    if format not in ("json", "hec"):
+        console.print(f"[red]unknown format '{format}' (json or hec)[/red]")
+        raise typer.Exit(1)
     store = _store(db)
     if session:
         sessions = store.cx.execute("SELECT * FROM sessions WHERE id=?", (session,)).fetchall()
@@ -171,10 +193,48 @@ def export(
             f"SELECT * FROM events WHERE session_id IN ({q}) ORDER BY seq", sids)]
         spend = [dict(r) for r in store.cx.execute(
             f"SELECT * FROM spend WHERE session_id IN ({q}) ORDER BY seq", sids)]
-    json.dump({"sessions": [dict(s) for s in sessions],
-               "events": events, "spend": spend}, sys.stdout, indent=2)
-    sys.stdout.write("\n")
     store.close()
+
+    if format == "json":
+        json.dump({"sessions": [dict(s) for s in sessions],
+                   "events": events, "spend": spend}, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return
+
+    # Splunk HEC: one JSON object per line, wrapped as {time, host, source,
+    # sourcetype, event}. See docs/SIEM.md for the forwarding recipe.
+    def _epoch(ts: str | None) -> float | None:
+        if not ts:
+            return None
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+
+    host = socket.gethostname()
+    sess_by_id = {s["id"]: dict(s) for s in sessions}
+    out = sys.stdout
+    for e in events:
+        sess = sess_by_id.get(e["session_id"], {})
+        evt: dict = {"kind": "tool_call", "session_id": e["session_id"],
+                     "harness": sess.get("harness"), "project": sess.get("project"),
+                     "ts": e["ts"], "tool": e["tool"], "summary": e["summary"],
+                     "chain_seq": e["seq"], "chain_hash": e["hash"]}
+        hec = {"source": "dashcam", "sourcetype": "dashcam:receipt",
+               "host": host, "event": evt}
+        if (t := _epoch(e["ts"])) is not None:
+            hec["time"] = t
+        out.write(json.dumps(hec, separators=(",", ":")) + "\n")
+    for x in spend:
+        sess = sess_by_id.get(x["session_id"], {})
+        evt = {"kind": "spend", "session_id": x["session_id"],
+               "harness": sess.get("harness"), "project": sess.get("project"),
+               "provider": x["provider"], "model": x["model"],
+               "input_tokens": x["input_tokens"], "output_tokens": x["output_tokens"],
+               "cost_usd": x["cost_usd"], "chain_seq": x["seq"], "chain_hash": x["hash"]}
+        hec = {"source": "dashcam", "sourcetype": "dashcam:receipt",
+               "host": host, "event": evt}
+        out.write(json.dumps(hec, separators=(",", ":")) + "\n")
 
 
 @app.command()
