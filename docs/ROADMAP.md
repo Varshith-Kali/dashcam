@@ -6,7 +6,7 @@ ships until the receipt layer beneath it is solid.
 ## v0.1 — the tape (current)
 - Claude Code transcript ingestion (read-only, resumable)
 - Hash-chained SQLite receipts + `dashcam verify`
-- Cross-provider cost from `pricing/models.json`
+- Cross-provider cost from `src/dashcam/data/models.json`
 - `dashcam today` digest, `dashcam runs`, `dashcam demo`
 - CI (ruff + pytest on 3.10–3.13), PyPI trusted publishing with Sigstore attestations
 

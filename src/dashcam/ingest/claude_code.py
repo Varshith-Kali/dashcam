@@ -86,17 +86,31 @@ def parse_transcript(project: str, path: Path, skip_lines: int = 0):
             env = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if not isinstance(env, dict):
+            continue
         ts = env.get("timestamp")
         if ts:
             started_at = started_at or ts
             ended_at = ts
         if env.get("type") != "assistant":
             continue
-        msg = env.get("message") or {}
+        msg = env.get("message")
+        if not isinstance(msg, dict):
+            continue
         model = env.get("model") or msg.get("model") or ""
-        usage = msg.get("usage") or {}
-        in_tok = int(usage.get("input_tokens") or 0)
-        out_tok = int(usage.get("output_tokens") or 0)
+        usage = msg.get("usage")
+        if not isinstance(usage, dict):
+            usage = {}
+
+        def _tokens(v) -> int:
+            try:
+                n = int(v or 0)
+            except (TypeError, ValueError):
+                return 0
+            return max(n, 0)
+
+        in_tok = _tokens(usage.get("input_tokens"))
+        out_tok = _tokens(usage.get("output_tokens"))
         if in_tok or out_tok:
             spends.append(Spend(session_id=session_id, provider=detect_provider(model),
                                 model=model or "unknown",

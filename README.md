@@ -56,7 +56,7 @@ Read [SECURITY.md](SECURITY.md) for the full threat model. The short version:
 
 ## Cost data
 
-Prices live in [`pricing/models.json`](pricing/models.json) (USD per 1M tokens). Providers change prices; when they do, send a PR that touches *only* that file.
+Prices live in [`src/dashcam/data/models.json`](src/dashcam/data/models.json) (USD per 1M tokens). Providers change prices; when they do, send a PR that touches *only* that file. If our table is stale, drop your own `~/.dashcam/pricing.json` (same format) — it overrides the packaged table without a reinstall.
 
 ## Roadmap
 
@@ -73,7 +73,7 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md) for detail.
 
 ## Contributing
 
-PRs welcome. The bar: deterministic, read-only, tested. Every parser change needs fixture transcripts in `tests/`. Price updates touch only `pricing/models.json`.
+PRs welcome. The bar: deterministic, read-only, tested. Every parser change needs fixture transcripts in `tests/`. Price updates touch only `src/dashcam/data/models.json`.
 
 ## License
 

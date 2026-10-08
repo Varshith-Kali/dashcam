@@ -1,20 +1,30 @@
 """Cross-provider cost computation.
 
-Prices live in ``pricing/models.json`` (USD per 1M tokens) and are deliberately
-a plain data file: when providers change prices, anyone can send a PR that only
-touches data. No model calls are ever needed to compute cost — the harness
-transcripts already record token usage.
+Prices live in ``src/dashcam/data/models.json`` (USD per 1M tokens) and are
+deliberately a plain data file: when providers change prices, anyone can
+send a PR that only touches data. No model calls are ever needed to compute
+cost — the harness transcripts already record token usage.
+
+Resolution order: an explicit ``path`` argument wins, then
+``~/.dashcam/pricing.json`` (user override for stale prices), then the
+packaged data file (so installed wheels work).
 """
 from __future__ import annotations
 
+import importlib.resources
 import json
 from pathlib import Path
 
-DEFAULT_PRICING_PATH = Path(__file__).resolve().parent.parent.parent / "pricing" / "models.json"
+
+def default_pricing_path() -> Path:
+    override = Path.home() / ".dashcam" / "pricing.json"
+    if override.exists():
+        return override
+    return Path(str(importlib.resources.files("dashcam") / "data" / "models.json"))
 
 
 def load_pricing(path: Path | None = None) -> dict:
-    p = Path(path) if path else DEFAULT_PRICING_PATH
+    p = Path(path) if path else default_pricing_path()
     try:
         return json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

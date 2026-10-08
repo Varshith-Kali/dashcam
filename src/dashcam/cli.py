@@ -82,7 +82,7 @@ def ingest(
                 if not known and s.model not in warned:
                     warned.add(s.model)
                     console.print(f"[yellow]no price for model '{s.model}' — cost recorded as $0 "
-                                  f"(PRs to pricing/models.json welcome)[/yellow]")
+                                  f"(PRs to src/dashcam/data/models.json welcome)[/yellow]")
                 store.record_spend(s)
                 n_spend += 1
             store.set_file_offset(str(path), nlines)

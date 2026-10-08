@@ -18,7 +18,7 @@ CI runs the same on Python 3.10–3.13. Keep it green.
 - Every parser change needs fixture transcripts under
   `tests/fixtures/<harness>/` and tests for: parsing, malformed input,
   incremental resume, no-duplicate re-ingest.
-- Price updates touch **only** `pricing/models.json`.
+- Price updates touch **only** `src/dashcam/data/models.json`.
 - Never persist full prompts. Run new tool-input shapes through
   `redact()` and add a test proving secrets don't land in SQLite.
 - Don't weaken `store.py`'s transaction discipline, WAL mode, or file

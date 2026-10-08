@@ -46,7 +46,7 @@ not chained; the *evidence* — what the agent did and what it cost — is.
 
 ## Cost
 
-`pricing/models.json` maps `provider/model` → USD per 1M input/output
+`src/dashcam/data/models.json` maps `provider/model` → USD per 1M input/output
 tokens. Cost is computed at ingest from transcript token counts — no
 model calls, no proxy. Unknown models record `$0` and warn; price updates
 are data-only PRs touching just that file.
