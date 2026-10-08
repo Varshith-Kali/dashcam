@@ -1,9 +1,10 @@
 """Seeded demo — the first-run experience must never be empty.
 
-``dashcam demo`` ingests a small synthetic Claude Code transcript (bundled as
-a fixture, clearly tagged source='demo') and prints the digest, so a new
-user sees the product working in under a minute. Demo rows are tagged and
-can be wiped with ``dashcam demo --clean``.
+``dashcam demo`` ingests a small synthetic Claude Code transcript and prints
+the digest, so a new user sees the product working in under a minute. The
+demo runs against a *scratch* database (``~/.dashcam/demo.db``): synthetic
+rows never touch the real receipt store, and ``dashcam demo --clean`` just
+deletes the scratch file — it can't disturb the real hash chain.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from . import cost as cost_mod
 from .digest import day_stats, render_digest
 from .ingest import claude_code
 from .models import Session
-from .store import Store
+from .store import Store, demo_db_path
 
 DEMO_LINES = [
     {"type": "user", "timestamp": "2026-10-08T09:14:00.000Z",
@@ -74,11 +75,13 @@ def run_demo(store: Store, console: Console | None = None) -> None:
     console.print(f"\n[{'green' if ok else 'red'}]verify: {msg}[/]")
 
 
-def clean_demo(store: Store) -> int:
-    """Remove demo rows. Returns number of sessions removed."""
-    n = store.cx.execute("SELECT COUNT(*) c FROM sessions WHERE source='demo'").fetchone()["c"]
-    store.cx.execute("DELETE FROM events WHERE source='demo'")
-    store.cx.execute("DELETE FROM spend WHERE source='demo'")
-    store.cx.execute("DELETE FROM sessions WHERE source='demo'")
-    store.cx.commit()
-    return n
+def clean_demo(path: Path | None = None) -> bool:
+    """Delete the scratch demo database (and its WAL sidecars)."""
+    p = path or demo_db_path()
+    removed = False
+    for suffix in ("", "-wal", "-shm"):
+        q = Path(str(p) + suffix)
+        if q.exists():
+            q.unlink()
+            removed = True
+    return removed

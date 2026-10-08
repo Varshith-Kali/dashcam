@@ -25,11 +25,12 @@ $ dashcam ingest && dashcam today
 
 ```bash
 pipx install dashcam        # or: pip install dashcam
-dashcam demo               # 60-second tour with synthetic data — the first run is never empty
+dashcam demo               # 60-second tour with synthetic data (scratch DB — your receipts stay clean)
 dashcam ingest             # read your real Claude Code session logs (read-only)
 dashcam today              # what did my agents do today?
 dashcam verify             # prove the receipts weren't tampered with
 dashcam runs               # list recorded sessions
+dashcam export             # dump receipts as JSON
 ```
 
 ## How it works
@@ -43,6 +44,15 @@ Claude Code transcripts (~/.claude/projects/*/*.jsonl)
 ```
 
 Each recorded row seals the previous one into a SHA-256 chain. Delete or alter a row and `dashcam verify` fails — the same tamper-evidence idea behind signed audit logs, running entirely on your laptop.
+
+## Security
+
+Read [SECURITY.md](SECURITY.md) for the full threat model. The short version:
+
+- **Tamper-evident, not tamper-proof** — stated honestly, with the upgrade path documented.
+- **Secret redaction** — command text is scrubbed for recognizable secrets before it's persisted; full prompts are never stored.
+- **Local-only** — no network code, no telemetry. DB is `0600`, directory `0700`.
+- **Crash-safe** — per-file ingestion is one ACID transaction; concurrent writers can't fork the chain (WAL + `BEGIN IMMEDIATE`).
 
 ## Cost data
 

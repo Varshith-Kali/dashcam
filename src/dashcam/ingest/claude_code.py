@@ -10,6 +10,7 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 
+from .. import redact as redact_mod
 from ..models import Session, Spend, ToolEvent
 
 HARNESS = "claude-code"
@@ -105,8 +106,11 @@ def parse_transcript(project: str, path: Path, skip_lines: int = 0):
                 continue
             name = str(block.get("name", "unknown"))
             summary, detail = summarize_tool(name, block.get("input") or {})
+            # Redact before persisting: summaries keep command text, which can
+            # carry pasted secrets.
             events.append(ToolEvent(session_id=session_id, ts=ts, tool=name,
-                                    summary=summary, detail=json.dumps(detail)))
+                                    summary=redact_mod.redact(summary),
+                                    detail=redact_mod.redact(json.dumps(detail))))
     session = Session(id=session_id, harness=HARNESS, project=project,
                       started_at=started_at, ended_at=ended_at)
     return session, events, spends, len(lines)
