@@ -10,10 +10,14 @@ import string
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from dashcam.ingest import claude_code
 from dashcam.models import Session, ToolEvent
 from dashcam.store import Store
+
+# Repo root, derived from this file's location — never hardcode a machine path.
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def _parse_lines(tmp_path, lines, name="fuzz.jsonl"):
@@ -99,7 +103,8 @@ def test_multiprocess_concurrent_ingest_no_fork(tmp_path):
     db = str(tmp_path / "t.db")
     Store(db).close()  # create
     script = (
-        "import sys; sys.path.insert(0, 'src');"
+        "import sys;"
+        f"sys.path.insert(0, {str(ROOT / 'src')!r});"
         "from dashcam.store import Store;"
         "from dashcam.models import ToolEvent;"
         f"s = Store({db!r});"
@@ -108,8 +113,7 @@ def test_multiprocess_concurrent_ingest_no_fork(tmp_path):
         " tool='Bash', summary='x')) for _ in range(30)];"
         "s.close()"
     )
-    procs = [subprocess.Popen([sys.executable, "-c", script, str(i)],
-                              cwd="/home/hatch/workspace/dashcam")
+    procs = [subprocess.Popen([sys.executable, "-c", script, str(i)], cwd=str(ROOT))
              for i in range(3)]
     for p in procs:
         assert p.wait(timeout=120) == 0, "worker failed"
@@ -125,7 +129,8 @@ def test_crash_recovery_in_subprocess(tmp_path):
     """A hard-killed ingest leaves a consistent store that resumes cleanly."""
     db = tmp_path / "t.db"
     code = (
-        "import sys; sys.path.insert(0, 'src');"
+        "import sys;"
+        f"sys.path.insert(0, {str(ROOT / 'src')!r});"
         "import os;"
         "from dashcam.store import Store;"
         "from dashcam.models import Session, ToolEvent;"
@@ -136,8 +141,7 @@ def test_crash_recovery_in_subprocess(tmp_path):
         "s.record_event(ToolEvent(session_id='s1', ts='t', tool='Bash', summary='$ x'));"
         "os._exit(137);"
     )
-    p = subprocess.run([sys.executable, "-c", code], cwd="/home/hatch/workspace/dashcam",
-                       check=False)
+    p = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT), check=False)
     assert p.returncode == 137  # died mid-transaction
     s = Store(str(db))
     n = s.cx.execute("SELECT COUNT(*) c FROM events").fetchone()["c"]
