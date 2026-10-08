@@ -4,13 +4,15 @@
 harness logs (read-only)          local receipt store           outputs
 ────────────────────────          ───────────────────           ───────
 ~/.claude/projects/*/*.jsonl
-        │  parsers (ingest/)       SQLite, hash-chained
-        │  resume via file offsets  ┌──────────────┐
-        ▼                           │ events, spend │──► dashcam today (digest)
-  dashcam ingest ──atomic/file──►  │ sessions      │──► dashcam runs
-                                   │ meta (offsets,│──► dashcam verify
-                                   │  chain head)  │──► dashcam export (JSON)
-                                   └──────────────┘
+~/.codex/sessions/**/*.jsonl  ──┐
+~/.gemini/tmp/**/chats/*.{json,jsonl} │
+        │  parsers (ingest/)      │   SQLite, hash-chained
+        │  resume via file offsets│   ┌──────────────┐
+        ▼                         │  │ events, spend │──► dashcam today (digest + anomaly flags)
+  dashcam ingest ──atomic/file──► │  │ sessions      │──► dashcam runs
+                                  │  │ meta (offsets,│──► dashcam verify
+                                  │  │  chain head)  │──► dashcam export (JSON / HEC / signed bundle)
+                                  └──────────────┘         └──► dashcam verify-bundle (offline)
 ```
 
 ## The chain
@@ -75,3 +77,25 @@ store and can't fork the chain.
 No firewall, no blocking, no prompt-injection judge, no network. The
 narrowness is the design: every feature must keep the receipt layer
 trustworthy, or it doesn't ship.
+
+## Anomaly surfacing (`anomaly.py`)
+
+Explainable statistics, no ML. For each (project, harness) pair, the
+trailing-30-day median per-session cost and tool-call count form the
+baseline (median is robust to the outliers being hunted). A session is
+flagged when it exceeds 3x the median on cost (floor: $1) or tool calls
+(floor: 10), and only when at least 5 baseline sessions exist — so new
+projects don't cry wolf. `dashcam today` shows the flags with the
+baseline numbers that triggered them.
+
+## Signed bundles (`signing.py`)
+
+The hash chain proves the local DB wasn't altered in place, but it can't
+leave the machine. `dashcam init` creates a local Ed25519 keypair
+(`~/.dashcam/signing.key`, mode 0600). `export --format bundle --session
+<id>` emits the session's canonical receipts plus signature and public
+key; `verify-bundle` checks the signature offline with no database
+access. This proves *provenance* — these receipts came from this dashcam
+identity, unaltered since signing — not protection against an attacker
+who owned the machine before signing. Keep offline copies of bundles
+for that threat.

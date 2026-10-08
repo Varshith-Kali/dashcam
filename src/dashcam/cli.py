@@ -12,14 +12,18 @@ from . import __version__
 from . import cost as cost_mod
 from . import demo as demo_mod
 from . import digest as digest_mod
-from .ingest import claude_code
+from .ingest import claude_code, codex, gemini
 from .store import Store, demo_db_path
 
 # Registry of verified harness parsers. A harness ships here only when its
 # log format has been verified against real harness output (see
 # ingest/base.py). Unverified formats stay out — wrong receipts are worse
 # than missing ones.
-PARSERS = {claude_code.HARNESS: claude_code}
+PARSERS = {
+    claude_code.HARNESS: claude_code,
+    codex.HARNESS: codex,
+    gemini.HARNESS: gemini,
+}
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 console = Console()
@@ -34,58 +38,64 @@ def init(db: str = typer.Option(None, help="Path to the receipts database.")) ->
     """Set up local storage and show what dashcam will read."""
     store = _store(db)
     console.print(f"[green]dashcam ready.[/green] Receipts live in [cyan]{store.path}[/cyan]")
-    dirs = claude_code.transcript_dirs()
-    if dirs:
-        console.print(f"Found Claude Code transcripts in {len(dirs)} project dir(s):")
-        for d in dirs[:5]:
-            console.print(f"  • {d}")
-        if len(dirs) > 5:
-            console.print(f"  … and {len(dirs) - 5} more")
-    else:
-        console.print("[yellow]No Claude Code transcripts found yet.[/yellow]")
+    found = False
+    for name, parser in sorted(PARSERS.items()):
+        dirs = parser.transcript_dirs()
+        if dirs:
+            found = True
+            console.print(f"Found {name} transcripts in {len(dirs)} dir(s):")
+            for d in dirs[:3]:
+                console.print(f"  • {d}")
+    if not found:
+        console.print("[yellow]No harness transcripts found yet.[/yellow]")
     console.print("dashcam only [bold]reads[/bold] these logs. It never modifies them.")
     store.close()
 
 
 @app.command()
 def ingest(
-    harness: str = typer.Option("claude-code", help="Which harness logs to read."),
+    harness: str = typer.Option("all", help="Which harness logs to read (or 'all')."),
     db: str = typer.Option(None, help="Path to the receipts database."),
 ) -> None:
     """Read harness session logs into the tamper-evident receipt store."""
     store = _store(db)
-    parser = PARSERS.get(harness)
-    if parser is None:
-        supported = ", ".join(sorted(PARSERS))
-        console.print(f"[red]harness '{harness}' not supported yet "
-                      f"(verified parsers: {supported}).[/red]")
-        raise typer.Exit(1)
+    if harness == "all":
+        parsers = [PARSERS[k] for k in sorted(PARSERS)]
+    else:
+        parser = PARSERS.get(harness)
+        if parser is None:
+            supported = ", ".join(sorted(PARSERS))
+            console.print(f"[red]harness '{harness}' not supported yet "
+                          f"(verified parsers: {supported}).[/red]")
+            raise typer.Exit(1)
+        parsers = [parser]
     pricing = cost_mod.load_pricing()
     n_sessions = n_events = n_spend = 0
     warned: set[str] = set()
-    for project, path in parser.iter_transcripts():
-        offset = store.file_offset(str(path))
-        session, events, spends, nlines = parser.parse_transcript(project, path,
-                                                                 skip_lines=offset)
-        # One transaction per file: a crash mid-file rolls back instead of
-        # leaving half a transcript in the store.
-        with store.atomic():
-            if not store.has_session(session.id):
-                store.record_session(session)
-                n_sessions += 1
-            for e in events:
-                store.record_event(e)
-                n_events += 1
-            for s in spends:
-                s.cost_usd, known = cost_mod.cost_usd(s.provider, s.model, s.input_tokens,
-                                                     s.output_tokens, pricing)
-                if not known and s.model not in warned:
-                    warned.add(s.model)
-                    console.print(f"[yellow]no price for model '{s.model}' — cost recorded as $0 "
-                                  f"(PRs to src/dashcam/data/models.json welcome)[/yellow]")
-                store.record_spend(s)
-                n_spend += 1
-            store.set_file_offset(str(path), nlines)
+    for parser in parsers:
+        for project, path in parser.iter_transcripts():
+            offset = store.file_offset(str(path))
+            session, events, spends, nlines = parser.parse_transcript(project, path,
+                                                                     skip_lines=offset)
+            # One transaction per file: a crash mid-file rolls back instead of
+            # leaving half a transcript in the store.
+            with store.atomic():
+                if not store.has_session(session.id):
+                    store.record_session(session)
+                    n_sessions += 1
+                for e in events:
+                    store.record_event(e)
+                    n_events += 1
+                for s in spends:
+                    s.cost_usd, known = cost_mod.cost_usd(s.provider, s.model, s.input_tokens,
+                                                         s.output_tokens, pricing)
+                    if not known and s.model not in warned:
+                        warned.add(s.model)
+                        console.print(f"[yellow]no price for model '{s.model}' — cost recorded as $0 "
+                                      f"(PRs to src/dashcam/data/models.json welcome)[/yellow]")
+                    store.record_spend(s)
+                    n_spend += 1
+                store.set_file_offset(str(path), nlines)
     console.print(f"ingested [bold]{n_sessions}[/bold] new sessions, "
                   f"[bold]{n_events}[/bold] tool calls, [bold]{n_spend}[/bold] spend rows")
     store.close()
@@ -167,16 +177,34 @@ def export(
     db: str = typer.Option(None, help="Path to the receipts database."),
     day: str = typer.Option(None, help="Export one day (YYYY-MM-DD). Default: everything."),
     session: str = typer.Option(None, help="Export a single session id."),
-    format: str = typer.Option("json", help="Output format: json or hec (Splunk HEC)."),
+    format: str = typer.Option("json", help="Output format: json, hec (Splunk HEC), or bundle (signed)."),
 ) -> None:
-    """Dump receipts to stdout — JSON, or Splunk HEC for SIEM forwarding."""
+    """Dump receipts to stdout — JSON, Splunk HEC for SIEM forwarding, or a signed bundle."""
     import socket
     from datetime import datetime
 
-    if format not in ("json", "hec"):
-        console.print(f"[red]unknown format '{format}' (json or hec)[/red]")
+    if format not in ("json", "hec", "bundle"):
+        console.print(f"[red]unknown format '{format}' (json, hec, or bundle)[/red]")
         raise typer.Exit(1)
     store = _store(db)
+
+    if format == "bundle":
+        from . import signing as signing_mod
+        if not session:
+            console.print("[red]--format bundle needs --session <id>[/red]")
+            raise typer.Exit(1)
+        private, _ = signing_mod.get_or_create_keypair()
+        try:
+            bundle = signing_mod.export_bundle(store, session, private)
+        except KeyError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(1)
+        finally:
+            store.close()
+        json.dump(bundle, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return
+
     if session:
         sessions = store.cx.execute("SELECT * FROM sessions WHERE id=?", (session,)).fetchall()
     elif day:
@@ -235,6 +263,23 @@ def export(
         hec = {"source": "dashcam", "sourcetype": "dashcam:receipt",
                "host": host, "event": evt}
         out.write(json.dumps(hec, separators=(",", ":")) + "\n")
+
+
+@app.command(name="verify-bundle")
+def verify_bundle(
+    file: str = typer.Argument(..., help="Path to a signed bundle JSON file."),
+) -> None:
+    """Verify a signed receipt bundle offline — no database needed."""
+    from . import signing as signing_mod
+    try:
+        bundle = json.loads(Path(file).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        console.print(f"[red]can't read bundle: {e}[/red]")
+        raise typer.Exit(1)
+    ok, msg = signing_mod.verify_bundle(bundle)
+    console.print(f"[{'green' if ok else 'red bold'}]{msg}[/]")
+    if not ok:
+        raise typer.Exit(1)
 
 
 @app.command()

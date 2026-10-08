@@ -65,11 +65,16 @@ def day_stats(store: Store, day: str | None = None) -> dict:
         total_cost += s["cost_usd"]
 
     by_harness = Counter(s["harness"] for s in sessions)
+    # Anomaly flags: sessions deviating from their (project, harness) baseline.
+    # Imported lazily to keep the digest import-light for tests.
+    from . import anomaly as anomaly_mod
+    flags = [f for f in anomaly_mod.flag_unusual(store)
+             if f.session_id in {s["id"] for s in sessions}]
     return {
         "day": day, "sessions": len(sessions), "by_harness": by_harness,
         "events": len(events), "tools": tools, "files": files,
         "by_model": by_model, "total_in": total_in, "total_out": total_out,
-        "total_cost": total_cost,
+        "total_cost": total_cost, "flags": flags,
     }
 
 
@@ -87,6 +92,14 @@ def render_digest(stats: dict, console: Console | None = None) -> None:
                   f"Tokens: [bold]{stats['total_in']:,}[/bold] in / "
                   f"[bold]{stats['total_out']:,}[/bold] out   "
                   f"Cost: [bold green]${stats['total_cost']:.2f}[/bold green]")
+    flags = stats.get("flags") or []
+    if flags:
+        console.print()
+        for f in flags[:5]:
+            console.print(f"[yellow bold]⚠ unusual session[/yellow bold] "
+                          f"[dim]{f.harness}/{f.project}[/dim] {f.session_id[:12]}… — {f.reason}")
+        if len(flags) > 5:
+            console.print(f"[dim]… and {len(flags) - 5} more[/dim]")
     if stats["tools"]:
         t = Table(title="Tool calls", show_header=True, header_style="bold")
         t.add_column("Tool"); t.add_column("Count", justify="right")

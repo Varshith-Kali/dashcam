@@ -66,3 +66,31 @@ def test_runs_shows_correct_cost_no_fanout(tmp_path):
     assert r.exit_code == 0, r.output
     assert "$4.00" in r.output  # 1.50 + 2.50, not multiplied
     assert "3,000" in r.output  # 1000 + 2000 input tokens
+
+
+def test_export_bundle_and_verify_bundle(tmp_path, monkeypatch):
+    from dashcam import signing as sg
+    db = tmp_path / "t.db"
+    home = tmp_path / "home"
+    monkeypatch.setattr(sg, "key_paths",
+                        lambda h=None: (home / ".dashcam" / "signing.key",
+                                        home / ".dashcam" / "signing.pub"))
+    # seed via helper in this file
+    _seed(db)
+    r = runner.invoke(app, ["export", "--db", str(db), "--format", "bundle",
+                            "--session", "s1"])
+    assert r.exit_code == 0, r.output
+    bundle = json.loads(r.output)
+    assert bundle["session"]["id"] == "s1"
+    bundle_file = tmp_path / "b.json"
+    bundle_file.write_text(r.output)
+    r2 = runner.invoke(app, ["verify-bundle", str(bundle_file)])
+    assert r2.exit_code == 0, r2.output
+    assert "valid signature" in r2.output
+
+
+def test_export_bundle_needs_session(tmp_path):
+    db = tmp_path / "t.db"
+    _seed(db)
+    r = runner.invoke(app, ["export", "--db", str(db), "--format", "bundle"])
+    assert r.exit_code == 1
