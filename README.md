@@ -5,6 +5,7 @@
 **The dashcam for your AI coding agents.**
 
 [![CI](https://github.com/Varshith-Kali/dashcam/actions/workflows/ci.yml/badge.svg)](https://github.com/Varshith-Kali/dashcam/actions)
+[![PyPI](https://img.shields.io/pypi/v/dashcam-ai)](https://pypi.org/project/dashcam-ai/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/github/license/Varshith-Kali/dashcam)](LICENSE)
 
@@ -54,7 +55,7 @@ Regulators are asking for exactly this artifact: the EU AI Act (Art. 12, enforce
 ## Quickstart
 
 ```bash
-pipx install dashcam        # or: pip install dashcam
+pipx install dashcam-ai        # or: pip install dashcam-ai
 dashcam demo               # 60-second tour on a scratch DB — your receipts stay clean
 dashcam ingest             # read all your agents' session logs (read-only, resumable)
 dashcam today              # what did my agents do today? (+ unusual-session flags)
