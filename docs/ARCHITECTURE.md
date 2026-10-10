@@ -99,3 +99,22 @@ access. This proves *provenance* — these receipts came from this dashcam
 identity, unaltered since signing — not protection against an attacker
 who owned the machine before signing. Keep offline copies of bundles
 for that threat.
+
+## Local UI (`serve.py`)
+
+`dashcam serve` renders a read-only timeline over the receipts with stdlib
+`http.server` only — no frameworks, no JavaScript. It binds 127.0.0.1,
+answers GET, and 405s everything else; user-controlled strings are
+HTML-escaped at render time. `/` shows today's cards, anomaly flags,
+recent sessions, and cost by harness; `/session?id=` shows tool calls,
+spend, and a per-session chain-link check (`dashcam verify` remains the
+full-chain authority).
+
+## BYOK narration (`brief.py`)
+
+`dashcam brief` is the only network-calling feature, and it's off unless
+you configure a key (`DASHCAM_API_KEY` or `~/.dashcam/llm.json`, 0600).
+It sends the *aggregate* digest text — counts, costs, top tools, anomaly
+flags — never raw summaries or prompt text, to an OpenAI-compatible or
+Anthropic endpoint over stdlib `urllib`. The system prompt forbids
+inventing numbers. Receipts stay the source of truth; the model narrates.

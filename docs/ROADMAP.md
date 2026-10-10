@@ -12,22 +12,29 @@ universal, more intelligent, or more portable.
 - Splunk HEC export (`docs/SIEM.md`)
 - CI (ruff + pytest on 3.10–3.13), PyPI trusted publishing with Sigstore attestations
 
-## v0.2 — universal tape (current)
+## v0.2 — universal tape (shipped)
 - Codex CLI + Gemini CLI parsers (verified against documented formats);
   `dashcam ingest` reads all harnesses, `--harness` selects one
 - Unusual-session flags in `dashcam today` (median-baseline anomaly surfacing)
 - Ed25519 signed bundles: `export --format bundle` + `verify-bundle`
   (offline-verifiable receipts for auditors)
 
-## v0.3 — more harnesses, more surface
-- opencode session parser (SQLite source)
-- `dashcam serve`: localhost-only read-only timeline UI (single HTML file, stdlib server)
+## v0.3 — more harnesses, more surface (shipped)
+- opencode session parser (SQLite source, read-only, fork-deduped)
+- `dashcam serve`: localhost-only read-only timeline UI (stdlib only)
 - Per-project digests (`dashcam today --project foo`)
 
-## v0.4 — optional brains (all off by default)
-- BYOK digest summarizer: natural-language "what did my agents do" via the user's
-  own key through a provider abstraction (LiteLLM-style). Deterministic receipts
-  stay the source of truth; the model only narrates.
+## v0.4 — optional brains (shipped, all off by default)
+- `dashcam brief`: BYOK narration of the digest via your own key
+  (OpenAI-compatible or Anthropic, stdlib HTTP). Deterministic receipts
+  stay the source of truth; the model only narrates. Only aggregate
+  stats are ever sent — never prompts or tool output.
+
+## What's next
+
+The planned roadmap is complete. Further work is driven by real usage:
+file an issue describing what your agents do that dashcam doesn't
+capture yet.
 
 ## Non-goals (will not build)
 - Pre-execution blocking / firewalls — bypassable, fatiguing, uninstall-bait

@@ -27,10 +27,12 @@ dashcam reads the logs your agents *already write* and keeps **tamper-evident re
 ## What it is
 
 - **Session receipts** — every agent session parsed from the harness's own logs into local SQLite, each row hash-chained (`sha256(prev_hash + record)`). `dashcam verify` proves the tape wasn't altered.
-- **Multi-harness** — Claude Code, Codex CLI, and Gemini CLI today, each with a verified parser. `dashcam ingest` reads them all; `dashcam ingest --harness codex` reads one.
+- **Multi-harness** — Claude Code, Codex CLI, Gemini CLI, and opencode, each with a verified parser. `dashcam ingest` reads them all; `dashcam ingest --harness codex` reads one.
 - **Cross-provider cost** — token usage converted to USD per provider/model from a community price table. No proxy, no MITM, no behavior change.
-- **`dashcam today`** — the daily digest: sessions, tool calls, files touched, tokens, spend — plus **unusual-session flags** when a session costs or calls tools far above its project's baseline.
+- **`dashcam today`** — the daily digest: sessions, tool calls, files touched, tokens, spend — plus **unusual-session flags** when a session costs or calls tools far above its project's baseline. `dashcam today --project foo` filters to one project.
 - **Signed bundles** — `dashcam export --format bundle --session <id>` emits an Ed25519-signed portable receipt anyone can verify offline with `dashcam verify-bundle`. The artifact you hand to an auditor.
+- **`dashcam serve`** — a localhost-only read-only timeline UI: today's stats, anomaly flags, recent sessions, per-session detail with chain-integrity check.
+- **`dashcam brief`** — optional BYOK narration: your own API key (OpenAI-compatible or Anthropic) turns the digest into a plain-English briefing. Off by default; only aggregate stats are ever sent.
 - **SIEM-ready** — `dashcam export --format hec` emits Splunk HEC events. dashcam is the edge sensor; your SIEM stays the system of record. See [docs/SIEM.md](docs/SIEM.md).
 
 ## What it is not
@@ -56,6 +58,8 @@ pipx install dashcam        # or: pip install dashcam
 dashcam demo               # 60-second tour on a scratch DB — your receipts stay clean
 dashcam ingest             # read all your agents' session logs (read-only, resumable)
 dashcam today              # what did my agents do today? (+ unusual-session flags)
+dashcam serve              # localhost timeline UI at http://127.0.0.1:8321
+dashcam brief              # BYOK plain-English briefing (needs your API key)
 dashcam runs               # sessions with tool calls, tokens and cost each
 dashcam verify             # prove the receipts weren't tampered with
 dashcam export --format bundle --session <id>  # signed receipt for auditors
@@ -66,14 +70,15 @@ dashcam export             # dump receipts as JSON (or --format hec for Splunk)
 
 ```mermaid
 flowchart LR
-    A["Agent transcripts<br/>Claude Code · Codex CLI · Gemini CLI"] -->|"read-only parse<br/>(nothing is modified)"| B["dashcam ingest"]
+    A["Agent transcripts<br/>Claude Code · Codex · Gemini · opencode"] -->|"read-only parse<br/>(nothing is modified)"| B["dashcam ingest"]
     B -->|"hash-chained,<br/>one ACID txn per file"| C[("SQLite<br/>~/.dashcam/receipts.db")]
-    C --> D["dashcam today<br/>(digest + anomaly flags)"]
-    C --> E["dashcam verify<br/>(chain check)"]
-    C --> F["export --format hec"]
-    F --> G["Splunk / SIEM"]
-    C --> H["export --format bundle"]
-    H --> I["Signed receipt<br/>(auditors, clients)"]
+    C --> D["today · brief<br/>(digest + anomaly flags)"]
+    C --> E["serve<br/>(localhost UI)"]
+    C --> F["verify<br/>(chain check)"]
+    C --> G["export --format hec"]
+    G --> H["Splunk / SIEM"]
+    C --> I["export --format bundle"]
+    I --> J["Signed receipt<br/>(auditors, clients)"]
 ```
 
 Each recorded row seals the previous one into a SHA-256 chain. Delete or alter a row and `dashcam verify` fails — the same tamper-evidence idea behind signed audit logs, running entirely on your laptop. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -93,11 +98,13 @@ Prices live in [`src/dashcam/data/models.json`](src/dashcam/data/models.json) (U
 
 ## Roadmap
 
-- **v0.1** — Claude Code transcripts, hash-chained receipts, cost, digest, demo, verify, SIEM export
-- **v0.2** — multi-harness (Codex CLI, Gemini CLI), unusual-session flags, Ed25519 signed bundles (this release)
-- **v0.3** — more harness parsers (opencode), `dashcam serve` (localhost read-only timeline), optional BYOK digest summarizer
+- **v0.1** — the tape: Claude Code transcripts, hash-chained receipts, cost, digest, demo, verify, SIEM export
+- **v0.2** — universal tape: Codex CLI + Gemini CLI parsers, unusual-session flags, Ed25519 signed bundles
+- **v0.3** — opencode parser (SQLite), `dashcam serve` localhost timeline UI, `dashcam today --project`
+- **v0.4** — `dashcam brief`: optional BYOK narration (your key, off by default, aggregates only)
 
-See [docs/ROADMAP.md](docs/ROADMAP.md). Principle: **depth on the core thesis** — a feature ships only if it makes the tape more universal, more intelligent, or more undeniable.
+The roadmap is complete. What's next is driven by real usage — file an issue with
+what your agents do that dashcam doesn't capture yet. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Honest comparisons
 

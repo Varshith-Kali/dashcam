@@ -20,18 +20,25 @@ def _today_prefix() -> str:
     return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
 
 
-def day_stats(store: Store, day: str | None = None) -> dict:
+def day_stats(store: Store, day: str | None = None, project: str | None = None) -> dict:
     day = day or _today_prefix()
     cx = store.cx
-    sessions = cx.execute(
-        "SELECT * FROM sessions WHERE substr(started_at,1,10)=? OR substr(started_at,1,10)=?",
-        (day, day.replace("-", "")),
-    ).fetchall()
-    # Fallback: match on local-date prefix more loosely (transcripts use ISO timestamps).
-    if not sessions:
+    if project:
         sessions = cx.execute(
-            "SELECT * FROM sessions WHERE started_at LIKE ?", (day + "%",)
+            "SELECT * FROM sessions WHERE project=? AND (substr(started_at,1,10)=? "
+            "OR substr(started_at,1,10)=? OR started_at LIKE ?)",
+            (project, day, day.replace("-", ""), day + "%"),
         ).fetchall()
+    else:
+        sessions = cx.execute(
+            "SELECT * FROM sessions WHERE substr(started_at,1,10)=? OR substr(started_at,1,10)=?",
+            (day, day.replace("-", "")),
+        ).fetchall()
+        # Fallback: match on local-date prefix more loosely (transcripts use ISO timestamps).
+        if not sessions:
+            sessions = cx.execute(
+                "SELECT * FROM sessions WHERE started_at LIKE ?", (day + "%",)
+            ).fetchall()
     sids = [s["id"] for s in sessions]
     events: list = []
     spend: list = []
@@ -71,7 +78,7 @@ def day_stats(store: Store, day: str | None = None) -> dict:
     flags = [f for f in anomaly_mod.flag_unusual(store)
              if f.session_id in {s["id"] for s in sessions}]
     return {
-        "day": day, "sessions": len(sessions), "by_harness": by_harness,
+        "day": day, "project": project, "sessions": len(sessions), "by_harness": by_harness,
         "events": len(events), "tools": tools, "files": files,
         "by_model": by_model, "total_in": total_in, "total_out": total_out,
         "total_cost": total_cost, "flags": flags,
@@ -86,7 +93,8 @@ def render_digest(stats: dict, console: Console | None = None) -> None:
         console.print("or [cyan]dashcam ingest[/cyan] to read your agents' session logs.")
         return
     h = " · ".join(f"{k} {v}" for k, v in stats["by_harness"].items())
-    console.print(f"[bold]dashcam — {stats['day']}[/bold]  ({h})")
+    proj = f" [{stats['project']}]" if stats.get("project") else ""
+    console.print(f"[bold]dashcam — {stats['day']}{proj}[/bold]  ({h})")
     console.print(f"Sessions: [bold]{stats['sessions']}[/bold]   "
                   f"Tool calls: [bold]{stats['events']}[/bold]   "
                   f"Tokens: [bold]{stats['total_in']:,}[/bold] in / "

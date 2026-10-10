@@ -12,7 +12,7 @@ from . import __version__
 from . import cost as cost_mod
 from . import demo as demo_mod
 from . import digest as digest_mod
-from .ingest import claude_code, codex, gemini
+from .ingest import claude_code, codex, gemini, opencode
 from .store import Store, demo_db_path
 
 # Registry of verified harness parsers. A harness ships here only when its
@@ -23,6 +23,7 @@ PARSERS = {
     claude_code.HARNESS: claude_code,
     codex.HARNESS: codex,
     gemini.HARNESS: gemini,
+    opencode.HARNESS: opencode,
 }
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -72,9 +73,43 @@ def ingest(
     pricing = cost_mod.load_pricing()
     n_sessions = n_events = n_spend = 0
     warned: set[str] = set()
+
+    def _price(s):
+        """Cost a spend row: prefer the harness's own pre-calculated cost."""
+        nonlocal n_spend
+        if s.cost_usd > 0:
+            store.record_spend(s)
+            n_spend += 1
+            return
+        s.cost_usd, known = cost_mod.cost_usd(s.provider, s.model, s.input_tokens,
+                                             s.output_tokens, pricing)
+        if not known and s.model not in warned:
+            warned.add(s.model)
+            console.print(f"[yellow]no price for model '{s.model}' — cost recorded as $0 "
+                          f"(PRs to src/dashcam/data/models.json welcome)[/yellow]")
+        store.record_spend(s)
+        n_spend += 1
+
     for parser in parsers:
         for project, path in parser.iter_transcripts():
             offset = store.file_offset(str(path))
+            if hasattr(parser, "parse_database"):
+                # Multi-session SQLite source (opencode): one row per session.
+                sessions, events, spends, total = parser.parse_database(
+                    path, skip_messages=offset)
+                # One transaction per database: atomic like the per-file path.
+                with store.atomic():
+                    for session in sessions:
+                        if not store.has_session(session.id):
+                            store.record_session(session)
+                            n_sessions += 1
+                    for e in events:
+                        store.record_event(e)
+                        n_events += 1
+                    for s in spends:
+                        _price(s)
+                    store.set_file_offset(str(path), total)
+                continue
             session, events, spends, nlines = parser.parse_transcript(project, path,
                                                                      skip_lines=offset)
             # One transaction per file: a crash mid-file rolls back instead of
@@ -87,14 +122,7 @@ def ingest(
                     store.record_event(e)
                     n_events += 1
                 for s in spends:
-                    s.cost_usd, known = cost_mod.cost_usd(s.provider, s.model, s.input_tokens,
-                                                         s.output_tokens, pricing)
-                    if not known and s.model not in warned:
-                        warned.add(s.model)
-                        console.print(f"[yellow]no price for model '{s.model}' — cost recorded as $0 "
-                                      f"(PRs to src/dashcam/data/models.json welcome)[/yellow]")
-                    store.record_spend(s)
-                    n_spend += 1
+                    _price(s)
                 store.set_file_offset(str(path), nlines)
     console.print(f"ingested [bold]{n_sessions}[/bold] new sessions, "
                   f"[bold]{n_events}[/bold] tool calls, [bold]{n_spend}[/bold] spend rows")
@@ -102,10 +130,13 @@ def ingest(
 
 
 @app.command()
-def today(db: str = typer.Option(None, help="Path to the receipts database.")) -> None:
+def today(
+    db: str = typer.Option(None, help="Path to the receipts database."),
+    project: str = typer.Option(None, help="Only show sessions for this project."),
+) -> None:
     """Show what your agents did today — sessions, tool calls, tokens, cost."""
     store = _store(db)
-    digest_mod.render_digest(digest_mod.day_stats(store), console)
+    digest_mod.render_digest(digest_mod.day_stats(store, project=project), console)
     store.close()
 
 
@@ -280,6 +311,70 @@ def verify_bundle(
     console.print(f"[{'green' if ok else 'red bold'}]{msg}[/]")
     if not ok:
         raise typer.Exit(1)
+
+
+@app.command()
+def serve(
+    port: int = typer.Option(8321, help="Local port to listen on."),
+    db: str = typer.Option(None, help="Path to the receipts database."),
+) -> None:
+    """Serve a read-only timeline UI on localhost (127.0.0.1 only)."""
+    from . import serve as serve_mod
+    console.print(f"[green]dashcam UI[/green] at [cyan]http://127.0.0.1:{port}[/cyan] "
+                  f"(read-only, Ctrl-C to stop)")
+    serve_mod.run(port=port, db=_store(db))
+
+
+@app.command()
+def brief(
+    db: str = typer.Option(None, help="Path to the receipts database."),
+    day: str = typer.Option(None, help="Brief a day (YYYY-MM-DD). Default: today."),
+    project: str = typer.Option(None, help="Only include this project."),
+    setup: bool = typer.Option(False, help="Interactively save your BYOK API key."),
+) -> None:
+    """Narrate the digest in plain English using your own API key (BYOK, off by default)."""
+    from . import brief as brief_mod
+    if setup:
+        key = typer.prompt("API key", hide_input=True).strip()
+        provider = (typer.prompt("Provider", default="openai").strip().lower()
+                    or "openai")
+        if provider not in ("openai", "anthropic"):
+            console.print("[red]provider must be openai or anthropic[/red]")
+            raise typer.Exit(1)
+        model = typer.prompt("Model (blank for default)", default="").strip()
+        base_url = typer.prompt("Base URL (blank for default)", default="").strip() or None
+        if not model:
+            model = {"openai": "gpt-5.6-luna",
+                     "anthropic": "claude-haiku-4-5"}[provider]
+        p = brief_mod.save_config(brief_mod.LLMConfig(
+            provider=provider, api_key=key, model=model, base_url=base_url))
+        console.print(f"[green]saved[/green] to {p} (mode 0600). Only aggregate stats are ever sent.")
+        return
+    try:
+        cfg = brief_mod.load_config()
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    if cfg is None:
+        console.print(brief_mod.SETUP_HINT)
+        raise typer.Exit(1)
+    store = _store(db)
+    try:
+        stats = digest_mod.day_stats(store, day=day, project=project)
+    finally:
+        store.close()
+    if not stats["sessions"]:
+        console.print("No sessions recorded for that day.")
+        return
+    brief_text = brief_mod.build_brief_text(stats)
+    console.print("[dim]Asking your model to narrate the digest (aggregates only)…[/dim]")
+    try:
+        narration = brief_mod.narrate(cfg, brief_text)
+    except (OSError, ValueError, RuntimeError) as e:
+        console.print(f"[red]LLM call failed: {e}[/red]")
+        raise typer.Exit(1)
+    console.print()
+    console.print(narration)
 
 
 @app.command()

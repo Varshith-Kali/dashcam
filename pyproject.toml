@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dashcam"
-version = "0.1.0"
+version = "0.4.0"
 description = "The dashcam for your AI coding agents — tamper-evident session receipts and cross-provider cost. Read-only."
 readme = "README.md"
 license = { text = "MIT" }
