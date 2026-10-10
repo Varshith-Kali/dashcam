@@ -50,7 +50,7 @@ dashcam export --format hec | curl -H "Authorization: Splunk $HEC_TOKEN" \
   --data-binary @- https://your-splunk:8088/services/collector/event
 ```
 
-Regulators are asking for exactly this artifact: the EU AI Act (Art. 12, enforceable since Aug 2026) requires high-risk AI systems to keep **tamper-evident** event logs; SOC 2 and ISO 42001 demand the same discipline. dashcam produces the receipt; your SIEM keeps it. Full mapping in [docs/SIEM.md](docs/SIEM.md).
+Regulators are asking for exactly this artifact: the EU AI Act (Art. 12) requires high-risk AI systems to automatically record events over their lifetime (application dates phase in from late 2027 under the 2026 omnibus timeline); SOC 2 and ISO 42001 demand the same discipline. dashcam produces the receipt; your SIEM keeps it. Full mapping in [docs/SIEM.md](docs/SIEM.md).
 
 ## Quickstart
 
