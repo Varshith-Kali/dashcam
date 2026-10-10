@@ -7,6 +7,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape as _mesc
 
 from . import __version__
 from . import cost as cost_mod
@@ -38,15 +39,15 @@ def _store(db: str | None) -> Store:
 def init(db: str = typer.Option(None, help="Path to the receipts database.")) -> None:
     """Set up local storage and show what dashcam will read."""
     store = _store(db)
-    console.print(f"[green]dashcam ready.[/green] Receipts live in [cyan]{store.path}[/cyan]")
+    console.print(f"[green]dashcam ready.[/green] Receipts live in [cyan]{_mesc(str(store.path))}[/cyan]")
     found = False
     for name, parser in sorted(PARSERS.items()):
         dirs = parser.transcript_dirs()
         if dirs:
             found = True
-            console.print(f"Found {name} transcripts in {len(dirs)} dir(s):")
+            console.print(f"Found {_mesc(name)} transcripts in {len(dirs)} dir(s):")
             for d in dirs[:3]:
-                console.print(f"  • {d}")
+                console.print(f"  • {_mesc(str(d))}")
     if not found:
         console.print("[yellow]No harness transcripts found yet.[/yellow]")
     console.print("dashcam only [bold]reads[/bold] these logs. It never modifies them.")
@@ -85,7 +86,7 @@ def ingest(
                                              s.output_tokens, pricing)
         if not known and s.model not in warned:
             warned.add(s.model)
-            console.print(f"[yellow]no price for model '{s.model}' — cost recorded as $0 "
+            console.print(f"[yellow]no price for model '{_mesc(s.model)}' — cost recorded as $0 "
                           f"(PRs to src/dashcam/data/models.json welcome)[/yellow]")
         store.record_spend(s)
         n_spend += 1
@@ -165,7 +166,7 @@ def list_runs(db: str = typer.Option(None, help="Path to the receipts database."
     t.add_column("Tools", justify="right"); t.add_column("Tokens in/out", justify="right")
     t.add_column("Cost", justify="right")
     for r in rows:
-        t.add_row((r["started_at"] or "?")[:16], r["harness"], (r["project"] or "")[:24],
+        t.add_row((r["started_at"] or "?")[:16], _mesc(r["harness"]), _mesc((r["project"] or "")[:24]),
                   str(r["tool_calls"]), f"{r['in_tok']:,}/{r['out_tok']:,}",
                   f"${r['cost']:.2f}")
     console.print(t)

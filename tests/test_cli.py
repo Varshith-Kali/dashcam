@@ -94,3 +94,22 @@ def test_export_bundle_needs_session(tmp_path):
     _seed(db)
     r = runner.invoke(app, ["export", "--db", str(db), "--format", "bundle"])
     assert r.exit_code == 1
+
+
+def test_today_project_with_brackets_does_not_crash(tmp_path):
+    """Project paths containing Rich markup chars must not crash today."""
+    from datetime import datetime, timezone
+
+    from dashcam.models import Session, ToolEvent
+    from dashcam.store import Store
+    db = tmp_path / "t.db"
+    s = Store(db)
+    ts = datetime.now(timezone.utc).isoformat()
+    s.record_session(Session(id="s1", harness="codex", project="/home/u/[x]/api",
+                             started_at=ts))
+    s.record_event(ToolEvent(session_id="s1", ts=ts, tool="Bash[evil]",
+                             summary="$ ok"))
+    s.close()
+    r = runner.invoke(app, ["today", "--db", str(db), "--project", "/home/u/[x]/api"])
+    assert r.exit_code == 0, r.output
+    assert "(/home/u/[x]/api)" in r.output  # displayed literally, not parsed as markup

@@ -89,7 +89,7 @@ Full threat model in [SECURITY.md](SECURITY.md). The short version:
 
 - **Tamper-evident, not tamper-proof** — stated honestly, with the upgrade path documented.
 - **Secret redaction** — command text is scrubbed for recognizable secrets before persistence; full prompts are never stored.
-- **Local-only** — no network code, no telemetry. DB is `0600`, directory `0700`.
+- **Local-first** — receipts never leave your machine. The only network calls dashcam ever makes are the ones you explicitly opt into: `brief` with your own API key. No telemetry, ever. DB is `0600`, directory `0700`.
 - **Crash-safe** — per-file ingestion is one ACID transaction; concurrent writers can't fork the chain (WAL + `BEGIN IMMEDIATE`).
 
 ## Cost data
@@ -108,7 +108,7 @@ what your agents do that dashcam doesn't capture yet. See [docs/ROADMAP.md](docs
 
 ## Honest comparisons
 
-- **vs. blocking sidecars** (pre-execution firewalls): they restrain, we record. Restraint gets bypassed and fatigues users; recording can't be bypassed and never nags. Different jobs.
+- **vs. blocking sidecars** (pre-execution firewalls): they restrain, we record. Restraint gets bypassed by a capable agent and fatigues users; recording stays out of the agent's way and never nags. Different jobs. (Honest scope note: we only see what the harness actually writes to its logs.)
 - **vs. session scorers** (e.g. `agent-dashcam`): they grade your agent's *quality*; we keep the *evidence*. The tape comes before the verdict.
 - **vs. agentmetry** (closest in spirit — local-first flight recorder, hash-chained): they go wider (MITRE mapping, detections, DLP, blocking modes) via IDE hooks; we stay narrow (receipts + cost + digest) and read-only — no hooks to install, none to bypass. Early days for both; pick the philosophy you want.
 

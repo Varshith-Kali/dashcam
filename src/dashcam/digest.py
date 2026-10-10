@@ -93,7 +93,10 @@ def render_digest(stats: dict, console: Console | None = None) -> None:
         console.print("or [cyan]dashcam ingest[/cyan] to read your agents' session logs.")
         return
     h = " · ".join(f"{k} {v}" for k, v in stats["by_harness"].items())
-    proj = f" [{stats['project']}]" if stats.get("project") else ""
+    # Project names are filesystem paths — escape Rich markup chars and
+    # avoid literal [...] wrapping (a leading "/" would read as a tag).
+    from rich.markup import escape as _mesc
+    proj = f" ({_mesc(stats['project'])})" if stats.get("project") else ""
     console.print(f"[bold]dashcam — {stats['day']}{proj}[/bold]  ({h})")
     console.print(f"Sessions: [bold]{stats['sessions']}[/bold]   "
                   f"Tool calls: [bold]{stats['events']}[/bold]   "
@@ -105,26 +108,27 @@ def render_digest(stats: dict, console: Console | None = None) -> None:
         console.print()
         for f in flags[:5]:
             console.print(f"[yellow bold]⚠ unusual session[/yellow bold] "
-                          f"[dim]{f.harness}/{f.project}[/dim] {f.session_id[:12]}… — {f.reason}")
+                          f"[dim]{_mesc(f.harness)}/{_mesc(f.project)}[/dim] "
+                          f"{_mesc(f.session_id[:12])}… — {_mesc(f.reason)}")
         if len(flags) > 5:
             console.print(f"[dim]… and {len(flags) - 5} more[/dim]")
     if stats["tools"]:
         t = Table(title="Tool calls", show_header=True, header_style="bold")
         t.add_column("Tool"); t.add_column("Count", justify="right")
         for tool, n in stats["tools"].most_common(8):
-            t.add_row(tool, str(n))
+            t.add_row(_mesc(tool), str(n))
         console.print(t)
     if stats["files"]:
         t = Table(title="Most touched files", show_header=True, header_style="bold")
         t.add_column("File"); t.add_column("Touches", justify="right")
         for fp, n in stats["files"].most_common(8):
-            t.add_row(fp, str(n))
+            t.add_row(_mesc(fp), str(n))
         console.print(t)
     if stats["by_model"]:
         t = Table(title="Cost by model", show_header=True, header_style="bold")
         t.add_column("Provider/Model"); t.add_column("In", justify="right")
         t.add_column("Out", justify="right"); t.add_column("Cost", justify="right")
         for k, b in sorted(stats["by_model"].items(), key=lambda kv: -kv[1]["cost"]):
-            t.add_row(k, f"{b['in']:,}", f"{b['out']:,}", f"${b['cost']:.2f}")
+            t.add_row(_mesc(k), f"{b['in']:,}", f"{b['out']:,}", f"${b['cost']:.2f}")
         console.print(t)
     console.print("[dim]Receipts are hash-chained locally. `dashcam verify` checks the tape.[/dim]")
